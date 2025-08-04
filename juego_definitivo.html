@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Juego de Intercambio - Niveles Mejorado</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin-top: 40px;
+    }
+
+    .board {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    .cell {
+      width: 60px;
+      height: 60px;
+      font-size: 30px;
+      cursor: pointer;
+      border: 2px solid #333;
+      border-radius: 10px;
+      background-color: #f0f0f0;
+      user-select: none;
+    }
+
+    .R {
+      background-color: crimson;
+      color: white;
+    }
+
+    .A {
+      background-color: dodgerblue;
+      color: white;
+    }
+
+    .selected {
+      outline: 3px solid gold;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+    }
+
+    #message {
+      margin-top: 10px;
+      font-weight: bold;
+    }
+
+    #levelDisplay {
+      margin: 10px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+
+    #rules {
+      max-width: 600px;
+      margin: 0 auto 20px auto;
+      font-size: 14px;
+      text-align: left;
+    }
+
+    button {
+      padding: 10px 15px;
+      font-size: 16px;
+      border-radius: 6px;
+      margin: 5px;
+      cursor: pointer;
+      transition: box-shadow 0.5s ease;
+    }
+
+    button.pulse {
+      animation: pulseGlow 1.5s infinite alternate;
+      box-shadow: 0 0 10px 3px yellow;
+    }
+
+    @keyframes pulseGlow {
+      0% {
+        box-shadow: 0 0 5px 1px yellow;
+      }
+      100% {
+        box-shadow: 0 0 20px 6px yellow;
+      }
+    }
+
+    #goalView {
+      margin: 20px auto;
+      max-width: 400px;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      user-select: none;
+    }
+
+    #goalView .cell {
+      cursor: default;
+    }
+  </style>
+</head>
+<body>
+  <h1>Intercambia las fichas</h1>
+  <div id="rules">
+    <strong>Reglas:</strong>
+    <ul>
+      <li>Solo puedes mover una casilla vacía o saltar sobre una ficha del otro color.</li>
+      <li>Las fichas <strong>no pueden retroceder</strong> (solo avanzar hacia el lado contrario).</li>
+      <li>Debes completar el nivel para pasar al siguiente.</li>
+      <li>Puedes reiniciar el nivel o volver al anterior en cualquier momento.</li>
+      <li>Usa el botón "Mostrar Objetivo" para ver cómo debe quedar el nivel.</li>
+    </ul>
+  </div>
+
+  <div id="levelDisplay">Nivel 1</div>
+  <div class="board" id="board"></div>
+
+  <div id="message"></div>
+
+  <div>
+    <button onclick="prevLevel()">Nivel Anterior</button>
+    <button id="resetBtn" onclick="resetLevel()">Reiniciar Nivel</button>
+    <button onclick="nextLevel()">Siguiente Nivel</button>
+    <button onclick="toggleGoalView()">Mostrar Objetivo</button>
+  </div>
+
+  <div id="goalView" style="display:none;"></div>
+
+<script>
+  const levels = [
+    { start: ['R', '', 'A'], goal: ['A', '', 'R'] },
+    { start: ['R', 'R', '', 'A', 'A'], goal: ['A', 'A', '', 'R', 'R'] },
+    { start: ['R', 'R', 'R', '', 'A', 'A', 'A'], goal: ['A', 'A', 'A', '', 'R', 'R', 'R'] },
+    { start: ['R', 'R', 'R', 'R', '', 'A', 'A', 'A', 'A'], goal: ['A', 'A', 'A', 'A', '', 'R', 'R', 'R', 'R'] }
+  ];
+
+  let currentLevel = 0;
+  let state = [...levels[currentLevel].start];
+  let selected = null;
+  let levelComplete = false;
+
+  const boardDiv = document.getElementById('board');
+  const message = document.getElementById('message');
+  const levelDisplay = document.getElementById('levelDisplay');
+  const goalView = document.getElementById('goalView');
+  const resetBtn = document.getElementById('resetBtn');
+
+  let stuckTimer = null;
+  let lastMoveTime = Date.now();
+
+  function render() {
+    boardDiv.innerHTML = '';
+    state.forEach((cell, i) => {
+      const div = document.createElement('div');
+      div.className = 'cell';
+      if (cell === 'R') div.classList.add('R');
+      else if (cell === 'A') div.classList.add('A');
+      if (selected === i) div.classList.add('selected');
+      div.innerText = cell;
+      div.onclick = () => handleClick(i);
+      boardDiv.appendChild(div);
+    });
+
+    levelDisplay.innerText = `Nivel ${currentLevel + 1}`;
+    checkWin();
+    resetStuckTimer();
+  }
+
+  function handleClick(i) {
+    if (levelComplete) return; // no mover si ya completado
+
+    if (state[i] !== '') {
+      selected = selected === i ? null : i;
+    } else if (selected !== null) {
+      const from = selected;
+      const to = i;
+      const dist = Math.abs(to - from);
+      const movingPiece = state[from];
+      const direction = to - from;
+
+      // Verifica que no retroceda (R hacia derecha, A hacia izquierda)
+      if ((movingPiece === 'R' && direction < 0) || (movingPiece === 'A' && direction > 0)) {
+        return;
+      }
+
+      if (dist === 1 || dist === 2) {
+        const between = (from + to) / 2;
+        const jumpedPiece = state[between];
+
+        if (dist === 1 || (jumpedPiece && jumpedPiece !== movingPiece)) {
+          state[to] = movingPiece;
+          state[from] = '';
+          selected = null;
+          lastMoveTime = Date.now(); // actualiza tiempo último movimiento
+          removePulse();
+        }
+      }
+    }
+    render();
+  }
+
+  function checkWin() {
+    const goal = JSON.stringify(levels[currentLevel].goal);
+    const current = JSON.stringify(state);
+    levelComplete = current === goal;
+    message.innerText = levelComplete ? '¡Nivel completado! 🎉 Puedes avanzar.' : '';
+  }
+
+  function nextLevel() {
+    if (levelComplete && currentLevel < levels.length - 1) {
+      currentLevel++;
+      state = [...levels[currentLevel].start];
+      selected = null;
+      levelComplete = false;
+      hideGoalView();
+      render();
+    } else if (!levelComplete) {
+      alert("Debes completar el nivel antes de avanzar.");
+    }
+  }
+
+  function prevLevel() {
+    if (currentLevel > 0) {
+      currentLevel--;
+      state = [...levels[currentLevel].start];
+      selected = null;
+      levelComplete = false;
+      hideGoalView();
+      render();
+    }
+  }
+
+  function resetLevel() {
+    state = [...levels[currentLevel].start];
+    selected = null;
+    levelComplete = false;
+    hideGoalView();
+    render();
+    removePulse();
+  }
+
+  function toggleGoalView() {
+    if (goalView.style.display === 'none') {
+      showGoalView();
+    } else {
+      hideGoalView();
+    }
+  }
+
+  function showGoalView() {
+    goalView.innerHTML = '';
+    levels[currentLevel].goal.forEach(cell => {
+      const div = document.createElement('div');
+      div.className = 'cell';
+      if (cell === 'R') div.classList.add('R');
+      else if (cell === 'A') div.classList.add('A');
+      div.innerText = cell;
+      goalView.appendChild(div);
+    });
+    goalView.style.display = 'flex';
+  }
+
+  function hideGoalView() {
+    goalView.style.display = 'none';
+  }
+
+  function checkIfStuck() {
+    const now = Date.now();
+    if (!levelComplete && (now - lastMoveTime) > 40000) {
+      // Sugerir reiniciar: añadir clase pulse para animar botón
+      resetBtn.classList.add('pulse');
+    }
+  }
+
+  function removePulse() {
+    resetBtn.classList.remove('pulse');
+  }
+
+  function resetStuckTimer() {
+    if (stuckTimer) clearTimeout(stuckTimer);
+    stuckTimer = setTimeout(checkIfStuck, 40000);
+  }
+
+  // Inicializar temporizador
+  resetStuckTimer();
+  setInterval(checkIfStuck, 1000);
+
+  render();
+</script>
+</body>
+</html>
